@@ -1,0 +1,16 @@
+name: pluto_sdr_app
+description: PlutoSDR RX control app.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sdr_device:
+    path: ../sdr_device
+
+flutter:
+  uses-material-design: true
