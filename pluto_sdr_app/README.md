@@ -9,6 +9,11 @@ setup. TX settings can only be changed while TX_LO powerdown is confirmed; the
 app has no TX-on control. A true spectrum/waterfall view still needs IQ buffer
 streaming and FFT processing.
 
+The screen also has named RX frequency favorites that persist on the phone,
+three quick sweep widths centered around the current frequency, and CSV export
+of sweep frequency/RSSI rows to the clipboard. The CSV can be pasted into a
+spreadsheet or analysis tool. The sweep is RSSI-based and is not a spectrum.
+
 Initial phone target: Samsung Galaxy S8 with Exynos, packaged for the 64-bit
 ARM Android ABI (`arm64-v8a`).
 
@@ -28,6 +33,7 @@ is queried from IIO at runtime; on the connected unit it was 70 MHz–6 GHz.
 - `lib/main.dart` starts the app and chooses its theme.
 - `lib/screens/pluto_home_page.dart` contains the screen and its button actions.
 - `lib/models/scan_point.dart` is the data for one point in an RX sweep.
+- `lib/models/saved_frequency.dart` stores a named RX frequency favorite.
 - `lib/widgets/rssi_chart.dart` draws the sweep graph.
 - `../sdr_device/lib/sdr_device.dart` contains radio operations and safety
   checks; `lib/src/libiio_ffi_transport.dart` is the small native bridge.

@@ -1,6 +1,9 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sdr_device/sdr_device.dart';
 
+import '../models/saved_frequency.dart';
 import '../models/scan_point.dart';
 import '../widgets/rssi_chart.dart';
 
@@ -12,6 +15,8 @@ class PlutoHomePage extends StatefulWidget {
 }
 
 class _PlutoHomePageState extends State<PlutoHomePage> {
+  static const _favoritesKey = 'rx_frequency_favorites';
+
   final _hostController = TextEditingController(text: '192.168.2.1');
   final _rxFrequencyController = TextEditingController();
   final _rxGainController = TextEditingController();
@@ -23,6 +28,7 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
   final _scanStartController = TextEditingController();
   final _scanStopController = TextEditingController();
   final _scanStepController = TextEditingController(text: '1');
+  final _preferences = SharedPreferencesAsync();
 
   SdrDevice? _device;
   String _status = 'Ikke tilkoblet';
@@ -32,9 +38,148 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
   String _rxPort = 'A_BALANCED';
   String _txPort = 'A';
   List<ScanPoint> _scanPoints = [];
+  List<SavedFrequency> _favorites = [];
   bool _scanning = false;
   bool _cancelScan = false;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavorites();
+  }
+
+  Future<void> _loadFavorites() async {
+    try {
+      final saved = await _preferences.getStringList(_favoritesKey) ?? [];
+      final favorites = saved
+          .map(SavedFrequency.decode)
+          .whereType<SavedFrequency>()
+          .toList();
+      if (mounted) setState(() => _favorites = favorites);
+    } catch (error) {
+      if (mounted) _showError('Favorittene kunne ikke leses: $error');
+    }
+  }
+
+  Future<void> _storeFavorites() async {
+    await _preferences.setStringList(
+      _favoritesKey,
+      _favorites.map((favorite) => favorite.encode()).toList(),
+    );
+  }
+
+  Future<void> _addFavorite() async {
+    final mhz = double.tryParse(_rxFrequencyController.text.trim());
+    if (mhz == null || mhz <= 0) {
+      _showError('Skriv inn en RX-frekvens før du lagrer den.');
+      return;
+    }
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Lagre RX-frekvens'),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            labelText: 'Navn',
+            hintText: '${mhz.toStringAsFixed(6)} MHz',
+          ),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Avbryt'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, nameController.text),
+            child: const Text('Lagre'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    final trimmedName = name?.trim();
+    if (trimmedName == null || trimmedName.isEmpty) return;
+
+    final hz = (mhz * 1000000).round();
+    final range = _rxFrequencyRange;
+    if (range != null && (hz < range.minimum || hz > range.maximum)) {
+      _showError('Frekvensen er utenfor radioens annonserte RX-område.');
+      return;
+    }
+    if (_favorites.any((favorite) => favorite.frequencyHz == hz)) {
+      _showError('Denne frekvensen ligger allerede i favorittene.');
+      return;
+    }
+    setState(() => _favorites = [
+          ..._favorites,
+          SavedFrequency(name: trimmedName, frequencyHz: hz),
+        ]);
+    try {
+      await _storeFavorites();
+    } catch (error) {
+      _showError('Favoritten kunne ikke lagres: $error');
+    }
+  }
+
+  Future<void> _tuneFavorite(SavedFrequency favorite) async {
+    final range = _rxFrequencyRange;
+    if (range != null &&
+        (favorite.frequencyHz < range.minimum ||
+            favorite.frequencyHz > range.maximum)) {
+      _showError('Favoritten ligger utenfor radioens RX-område.');
+      return;
+    }
+    await _run(() async {
+      await _device!.setFrequencyHz(SdrDirection.rx, favorite.frequencyHz);
+      await _readValues();
+    });
+  }
+
+  Future<void> _removeFavorite(SavedFrequency favorite) async {
+    setState(() => _favorites = _favorites
+        .where((item) => item.frequencyHz != favorite.frequencyHz)
+        .toList());
+    try {
+      await _storeFavorites();
+    } catch (error) {
+      _showError('Favoritten kunne ikke fjernes: $error');
+    }
+  }
+
+  void _applyScanPreset(double spanMHz, double stepMHz) {
+    final range = _rxFrequencyRange;
+    if (range == null) return;
+    final minimumMHz = range.minimum / 1000000;
+    final maximumMHz = range.maximum / 1000000;
+    final currentMHz = double.tryParse(_rxFrequencyController.text.trim()) ??
+        (minimumMHz + maximumMHz) / 2;
+    final startMHz = (currentMHz - spanMHz).clamp(minimumMHz, maximumMHz);
+    final stopMHz = (currentMHz + spanMHz).clamp(minimumMHz, maximumMHz);
+    setState(() {
+      _scanStartController.text = startMHz.toStringAsFixed(3);
+      _scanStopController.text = stopMHz.toStringAsFixed(3);
+      _scanStepController.text = stepMHz.toStringAsFixed(3);
+    });
+  }
+
+  Future<void> _copyScanCsv() async {
+    if (_scanPoints.isEmpty) return;
+    final csv = StringBuffer('frequency_mhz,rssi_db\n');
+    for (final point in _scanPoints) {
+      csv.writeln(
+          '${point.frequencyMHz.toStringAsFixed(6)},${point.rssiDb.toStringAsFixed(2)}');
+    }
+    await Clipboard.setData(ClipboardData(text: csv.toString()));
+    if (mounted) {
+      _showMessage('Sveipresultatet er kopiert som CSV.');
+    }
+  }
 
   Future<void> _connect() async {
     final host = _hostController.text.trim();
@@ -303,6 +448,13 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   void dispose() {
     _hostController.dispose();
@@ -397,6 +549,34 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
               child: const Text('Sett RX-frekvens'),
             ),
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: connected && !_busy ? _addFavorite : null,
+              icon: const Icon(Icons.bookmark_add_outlined),
+              label: const Text('Lagre som favoritt'),
+            ),
+          ),
+          if (_favorites.isNotEmpty) ...[
+            Text('Favoritter', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            ..._favorites.map((favorite) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.bookmark),
+                    title: Text(favorite.name),
+                    subtitle:
+                        Text('${favorite.frequencyMHz.toStringAsFixed(6)} MHz'),
+                    onTap: connected && !_busy
+                        ? () => _tuneFavorite(favorite)
+                        : null,
+                    trailing: IconButton(
+                      tooltip: 'Fjern favoritt',
+                      onPressed: _busy ? null : () => _removeFavorite(favorite),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ),
+                )),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _rxGainController,
@@ -420,6 +600,28 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
           const SizedBox(height: 8),
           Text('RX-frekvenssveip',
               style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          const Text('Raske oppsett fra gjeldende RX-frekvens:'),
+          Wrap(spacing: 8, children: [
+            ActionChip(
+              label: const Text('Nært · ±1 MHz'),
+              onPressed: connected && !_busy
+                  ? () => _applyScanPreset(1, 0.1)
+                  : null,
+            ),
+            ActionChip(
+              label: const Text('Vanlig · ±5 MHz'),
+              onPressed: connected && !_busy
+                  ? () => _applyScanPreset(5, 0.5)
+                  : null,
+            ),
+            ActionChip(
+              label: const Text('Bredt · ±20 MHz'),
+              onPressed: connected && !_busy
+                  ? () => _applyScanPreset(20, 1)
+                  : null,
+            ),
+          ]),
           const SizedBox(height: 8),
           Row(children: [
             Expanded(
@@ -467,6 +669,14 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
           ]),
           if (_scanPoints.isNotEmpty) ...[
             Text('${_scanPoints.length} målepunkter · RSSI fra IIO'),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _copyScanCsv,
+                icon: const Icon(Icons.copy),
+                label: const Text('Kopier målinger som CSV'),
+              ),
+            ),
             const SizedBox(
               height: 220,
               child: RssiChart(points: _scanPoints),
