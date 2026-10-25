@@ -245,8 +245,10 @@ class LibiioFfiTransport implements LibiioTransport {
     }
     if (txGainWrite) {
       if (value < sdrTxGainMinimumDb || value > sdrTxGainMaximumDb) {
-        throw RangeError.range(
-            value, sdrTxGainMinimumDb, sdrTxGainMaximumDb, 'value');
+        throw RangeError.value(
+            value, 'value',
+            'TX gain must be between $sdrTxGainMinimumDb and '
+                '$sdrTxGainMaximumDb dB.');
       }
       await _requireTxPoweredDown();
     }

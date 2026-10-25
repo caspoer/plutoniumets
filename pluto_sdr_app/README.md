@@ -70,20 +70,23 @@ analyzer. Spectrum and recording depend on RX IQ buffer streaming, which is
 the next native libiio layer. Modulation decoding can be added later without
 changing the recording format or basic screen layout.
 
-## APK build requirements
+## APK build status
 
-This workspace does not have Flutter/Dart or the Android SDK installed, so an
-APK has not been built. To produce a downloadable APK, the Android project
-platform files must be generated with Flutter, USB host support and the
-permission bridge implemented, and an Android `arm64-v8a` `libiio.so` with
-libusb/USB backend support bundled in the app. The core package loads this
-library dynamically as `libiio.so`.
-
-After those prerequisites are in place, build with:
+The Android project files have been generated and an arm64 release APK builds
+with:
 
 ```sh
 flutter pub get
-flutter build apk --release
+flutter build apk --release --target-platform android-arm64
 ```
 
-The APK will be written to `build/app/outputs/flutter-apk/app-release.apk`.
+The APK is written to `build/app/outputs/flutter-apk/app-release.apk`. The
+current 17.4 MB APK is a debug-signed preview that can open the UI. It cannot
+connect to the Pluto yet: an Android `arm64-v8a` `libiio.so` is not bundled,
+and direct USB-C OTG support is not implemented. The current transport remains
+IP/libiio. The phone must also authorize USB debugging before ADB can install
+the APK directly.
+
+The next hardware step is to package Android libiio/libusb and implement the
+Android USB permission/file-descriptor bridge. IQ streaming, SigMF recording,
+and spectrum analysis still depend on that native transport.

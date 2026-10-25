@@ -677,7 +677,7 @@ class _PlutoHomePageState extends State<PlutoHomePage> {
                 label: const Text('Kopier målinger som CSV'),
               ),
             ),
-            const SizedBox(
+            SizedBox(
               height: 220,
               child: RssiChart(points: _scanPoints),
             ),

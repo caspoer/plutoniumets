@@ -188,7 +188,8 @@ class SdrDevice {
           rx.id, rx.output, 'gain_control_mode', 'manual');
     } else {
       if (db < minTxGainDb || db > maxTxGainDb) {
-        throw RangeError.range(db, minTxGainDb, maxTxGainDb, 'db');
+        throw RangeError.value(db, 'db',
+            'TX gain must be between $minTxGainDb and $maxTxGainDb dB.');
       }
       await _requireTxPoweredDown();
     }
